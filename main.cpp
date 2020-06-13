@@ -7,6 +7,8 @@
 #include <vector>
 #include <SDL.h>
 #include "arcball_camera.h"
+#include "dxr/dxdisplay.h"
+#include "dxr/render_dxr.h"
 #include "imgui.h"
 #include "scene.h"
 #include "stb_image_write.h"
@@ -15,23 +17,9 @@
 #include "util/display/display.h"
 #include "util/display/gldisplay.h"
 #include "util/display/imgui_impl_sdl.h"
+#include "util/xatlas.h"
 
-#include "dxr/dxdisplay.h"
-#include "dxr/render_dxr.h"
-
-const std::string USAGE =
-    "Usage: <backend> <obj_file> [options]\n"
-    "Backends:\n"
-    "\t-dxr       Render with DirectX Ray Tracing\n"
-    "Options:\n"
-    "\t-eye <x> <y> <z>       Set the camera position\n"
-    "\t-center <x> <y> <z>    Set the camera focus point\n"
-    "\t-up <x> <y> <z>        Set the camera up vector\n"
-    "\t-fov <fovy>            Specify the camera field of view (in degrees)\n"
-    "\t-camera <n>            If the scene contains multiple cameras, specify which\n"
-    "\t                       should be used. Defaults to the first camera\n"
-    "\t-img <x> <y>           Specify the window dimensions. Defaults to 1280x720\n"
-    "\n";
+const std::string USAGE = "Usage: <backend> <obj/gltf_file>\n";
 
 int win_width = 1280;
 int win_height = 720;
@@ -50,7 +38,7 @@ int main(int argc, const char **argv)
         return a == "-h" || a == "--help";
     });
 
-    if (argc < 3 || fnd_help != args.end()) {
+    if (argc < 2 || fnd_help != args.end()) {
         std::cout << USAGE;
         return 1;
     }
@@ -61,7 +49,6 @@ int main(int argc, const char **argv)
     }
 
     // Determine which display frontend we should use
-    std::string display_frontend = "gl";
     uint32_t window_flags = SDL_WINDOW_RESIZABLE;
     for (size_t i = 0; i < args.size(); ++i) {
         if (args[i] == "-img") {
@@ -69,25 +56,6 @@ int main(int argc, const char **argv)
             win_height = std::stoi(args[++i]);
             continue;
         }
-        if (args[i] == "-dxr") {
-            display_frontend = "dx";
-            continue;
-        }
-    }
-
-    if (display_frontend == "gl") {
-        window_flags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_OPENGL;
-
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG);
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 4);
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 5);
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_DEBUG_FLAG);
-
-        // Create window with graphics context
-        SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-        SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
-        SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
     }
 
     SDL_Window *window = SDL_CreateWindow("ChameleonRT",
@@ -119,56 +87,17 @@ void run_app(const std::vector<std::string> &args, SDL_Window *window, Display *
     ImGuiIO &io = ImGui::GetIO();
 
     DXDisplay *dx_display = dynamic_cast<DXDisplay *>(display);
-    bool display_is_native = false;
 
-    std::string scene_file;
-    std::unique_ptr<RenderBackend> renderer = nullptr;
-    bool got_camera_args = false;
-    glm::vec3 eye(0, 0, 5);
-    glm::vec3 center(0);
-    glm::vec3 up(0, 1, 0);
-    float fov_y = 65.f;
-    size_t camera_id = 0;
-    std::string backend_arg;
-    std::string validation_img_prefix;
+    std::unique_ptr<RenderBackend> renderer =
+        std::make_unique<RenderDXR>(dx_display->device, true);
+
+    std::string scene_file = args[1];
+    /*
     for (size_t i = 1; i < args.size(); ++i) {
-        if (args[i] == "-eye") {
-            eye.x = std::stof(args[++i]);
-            eye.y = std::stof(args[++i]);
-            eye.z = std::stof(args[++i]);
-            got_camera_args = true;
-        } else if (args[i] == "-center") {
-            center.x = std::stof(args[++i]);
-            center.y = std::stof(args[++i]);
-            center.z = std::stof(args[++i]);
-            got_camera_args = true;
-        } else if (args[i] == "-up") {
-            up.x = std::stof(args[++i]);
-            up.y = std::stof(args[++i]);
-            up.z = std::stof(args[++i]);
-            got_camera_args = true;
-        } else if (args[i] == "-fov") {
-            fov_y = std::stof(args[++i]);
-            got_camera_args = true;
-        } else if (args[i] == "-camera") {
-            camera_id = std::stol(args[++i]);
-        } else if (args[i] == "-validation") {
-            validation_img_prefix = args[++i];
-        } else if (args[i] == "-dxr") {
-            if (dx_display) {
-                display_is_native = true;
-                renderer = std::make_unique<RenderDXR>(dx_display->device, display_is_native);
-            } else {
-                renderer = std::make_unique<RenderDXR>();
-            }
-            backend_arg = args[i];
-        } else if (args[i] == "-img") {
-            i += 2;
-        } else {
-            scene_file = args[i];
-            canonicalize_path(scene_file);
-        }
+        scene_file = args[i];
+        canonicalize_path(scene_file);
     }
+    */
     if (!renderer) {
         std::cout << "Error: No renderer backend or invalid backend name specified\n" << USAGE;
         std::exit(1);
@@ -200,16 +129,54 @@ void run_app(const std::vector<std::string> &args, SDL_Window *window, Display *
         scene_info = ss.str();
         std::cout << scene_info << "\n";
 
-        renderer->set_scene(scene);
+        auto *atlas = xatlas::Create();
 
-        if (!got_camera_args && !scene.cameras.empty()) {
-            eye = scene.cameras[camera_id].position;
-            center = scene.cameras[camera_id].center;
-            up = scene.cameras[camera_id].up;
-            fov_y = scene.cameras[camera_id].fov_y;
+        const size_t total_geometries = scene.num_geometries();
+        for (const auto &m : scene.meshes) {
+            for (const auto &g : m.geometries) {
+                xatlas::MeshDecl mesh;
+                mesh.vertexCount = g.vertices.size();
+                mesh.vertexPositionData = g.vertices.data();
+                mesh.vertexPositionStride = sizeof(glm::vec3);
+
+                mesh.indexCount = g.indices.size() * 3;
+                mesh.indexData = g.indices.data();
+                mesh.indexFormat = xatlas::IndexFormat::UInt32;
+
+                if (!g.uvs.empty()) {
+                    mesh.vertexUvData = g.uvs.data();
+                    mesh.vertexUvStride = sizeof(glm::vec2);
+                }
+
+                if (!g.normals.empty()) {
+                    mesh.vertexNormalData = g.normals.data();
+                    mesh.vertexNormalStride = sizeof(glm::vec3);
+                }
+
+                auto err = xatlas::AddMesh(atlas, mesh, total_geometries);
+                if (err != xatlas::AddMeshError::Success) {
+                    xatlas::Destroy(atlas);
+                    std::cout << "Error adding geometry to atlas: "
+                              << xatlas::StringForEnum(err) << "\n";
+                    throw std::runtime_error("Error adding geometry to atlas");
+                }
+            }
         }
-    }
 
+        std::cout << "Generating atlas\n";
+        xatlas::Generate(atlas);
+        std::cout << "Atlas generated:\n"
+                  << "  # of charts: " << atlas->chartCount << "\n"
+                  << "  # of atlases: " << atlas->atlasCount << "\n"
+                  << "  Resolution: " << atlas->width << "x" << atlas->height << "\n";
+
+        // renderer->set_scene(scene);
+    }
+    return;
+
+    glm::vec3 eye(0, 0, 5);
+    glm::vec3 center(0);
+    glm::vec3 up(0, 1, 0);
     ArcballCamera camera(eye, center, up);
 
     const std::string rt_backend = renderer->name();
@@ -241,8 +208,7 @@ void run_app(const std::vector<std::string> &args, SDL_Window *window, Display *
                     auto up = camera.up();
                     std::cout << "-eye " << eye.x << " " << eye.y << " " << eye.z
                               << " -center " << center.x << " " << center.y << " " << center.z
-                              << " -up " << up.x << " " << up.y << " " << up.z << " -fov "
-                              << fov_y << "\n";
+                              << " -up " << up.x << " " << up.y << " " << up.z << "\n";
                 } else if (event.key.keysym.sym == SDLK_s) {
                     std::cout << "Image saved to " << image_output << "\n";
                     stbi_write_png(image_output.c_str(),
@@ -293,9 +259,9 @@ void run_app(const std::vector<std::string> &args, SDL_Window *window, Display *
             frame_id = 0;
         }
 
-        const bool need_readback = save_image || !validation_img_prefix.empty();
+        const bool need_readback = save_image;
         RenderStats stats = renderer->render(
-            camera.eye(), camera.dir(), camera.up(), fov_y, camera_changed, need_readback);
+            camera.eye(), camera.dir(), camera.up(), 45.f, camera_changed, need_readback);
 
         ++frame_id;
         camera_changed = false;
@@ -304,16 +270,6 @@ void run_app(const std::vector<std::string> &args, SDL_Window *window, Display *
             save_image = false;
             std::cout << "Image saved to " << image_output << "\n";
             stbi_write_png(image_output.c_str(),
-                           win_width,
-                           win_height,
-                           4,
-                           renderer->img.data(),
-                           4 * win_width);
-        }
-        if (!validation_img_prefix.empty()) {
-            const std::string img_name =
-                validation_img_prefix + backend_arg + "-f" + std::to_string(frame_id) + ".png";
-            stbi_write_png(img_name.c_str(),
                            win_width,
                            win_height,
                            4,
@@ -361,13 +317,7 @@ void run_app(const std::vector<std::string> &args, SDL_Window *window, Display *
         ImGui::End();
         ImGui::Render();
 
-        if (display_is_native) {
-            if (dx_display) {
-                RenderDXR *render_dx = reinterpret_cast<RenderDXR *>(renderer.get());
-                dx_display->display_native(render_dx->render_target);
-            }
-        } else {
-            display->display(renderer->img);
-        }
+        RenderDXR *render_dx = reinterpret_cast<RenderDXR *>(renderer.get());
+        dx_display->display_native(render_dx->render_target);
     }
 }

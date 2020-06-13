@@ -9,7 +9,8 @@ add_library(util
     buffer_view.cpp
     gltf_types.cpp
     flatten_gltf.cpp
-    file_mapping.cpp)
+    file_mapping.cpp
+    xatlas.cpp)
 
 set_target_properties(util PROPERTIES
     CXX_STANDARD 14
@@ -24,10 +25,4 @@ target_include_directories(util PUBLIC
 target_link_libraries(util PUBLIC
     imgui
     ${SDL2_LIBRARY})
-
-find_package(pbrtParser)
-if (${pbrtParser_FOUND})
-    target_link_libraries(util PUBLIC pbrtParser)
-    target_compile_definitions(util PUBLIC PBRT_PARSER_ENABLED)
-endif()
 
