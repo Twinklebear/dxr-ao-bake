@@ -88,7 +88,7 @@ void run_app(const std::vector<std::string> &args, SDL_Window *window, Display *
 
     DXDisplay *dx_display = dynamic_cast<DXDisplay *>(display);
 
-    std::unique_ptr<RenderBackend> renderer =
+    std::unique_ptr<RenderDXR> renderer =
         std::make_unique<RenderDXR>(dx_display->device, true);
 
     std::string scene_file = args[1];
@@ -110,6 +110,7 @@ void run_app(const std::vector<std::string> &args, SDL_Window *window, Display *
     display->resize(win_width, win_height);
     renderer->initialize(win_width, win_height);
 
+    glm::uvec2 atlas_size;
     std::string scene_info;
     {
         Scene scene(scene_file);
@@ -130,7 +131,6 @@ void run_app(const std::vector<std::string> &args, SDL_Window *window, Display *
         std::cout << scene_info << "\n";
 
         auto *atlas = xatlas::Create();
-
         const size_t total_geometries = scene.num_geometries();
         for (const auto &m : scene.meshes) {
             for (const auto &g : m.geometries) {
@@ -170,9 +170,60 @@ void run_app(const std::vector<std::string> &args, SDL_Window *window, Display *
                   << "  # of atlases: " << atlas->atlasCount << "\n"
                   << "  Resolution: " << atlas->width << "x" << atlas->height << "\n";
 
-        // renderer->set_scene(scene);
+        atlas_size = glm::uvec2(atlas->width, atlas->height);
+
+        // Replace the mesh data with the atlas mesh data
+        size_t mesh_id = 0;
+        for (auto &m : scene.meshes) {
+            for (auto &g : m.geometries) {
+                const auto &mesh = atlas->meshes[mesh_id++];
+                std::vector<glm::vec3> atlas_verts;
+                std::vector<glm::vec2> atlas_uvs;
+                atlas_verts.reserve(mesh.vertexCount);
+                atlas_uvs.reserve(mesh.vertexCount);
+
+                std::vector<glm::vec3> atlas_normals;
+                if (!g.normals.empty()) {
+                    atlas_normals.reserve(mesh.vertexCount);
+                }
+                for (size_t i = 0; i < mesh.vertexCount; ++i) {
+                    const auto &vert_indices = mesh.vertexArray[i];
+                    atlas_verts.push_back(g.vertices[vert_indices.xref]);
+
+                    if (!g.normals.empty()) {
+                        atlas_normals.push_back(g.normals[vert_indices.xref]);
+                    }
+                    atlas_uvs.push_back(glm::vec2(vert_indices.uv[0] / atlas_size.x,
+                                                  vert_indices.uv[1] / atlas_size.y));
+                }
+
+                std::vector<glm::uvec3> atlas_indices;
+                atlas_indices.reserve(mesh.indexCount / 3);
+                for (size_t i = 0; i < mesh.indexCount / 3; ++i) {
+                    atlas_indices.push_back(glm::uvec3(mesh.indexArray[i * 3],
+                                                       mesh.indexArray[i * 3 + 1],
+                                                       mesh.indexArray[i * 3 + 2]));
+                }
+
+                g.vertices = atlas_verts;
+                g.normals = atlas_normals;
+                g.uvs = atlas_uvs;
+                g.indices = atlas_indices;
+            }
+        }
+        xatlas::Destroy(atlas);
+
+        renderer->set_scene(scene);
     }
-    return;
+
+    // TODO LATER: 2D panning controls for the atlas so we don't need the window dims to match
+    // it
+    win_width = atlas_size.x;
+    win_height = atlas_size.y;
+    SDL_SetWindowSize(window, win_width, win_height);
+
+    display->resize(win_width, win_height);
+    renderer->initialize(win_width, win_height);
 
     glm::vec3 eye(0, 0, 5);
     glm::vec3 center(0);
@@ -202,21 +253,6 @@ void run_app(const std::vector<std::string> &args, SDL_Window *window, Display *
             if (!io.WantCaptureKeyboard && event.type == SDL_KEYDOWN) {
                 if (event.key.keysym.sym == SDLK_ESCAPE) {
                     done = true;
-                } else if (event.key.keysym.sym == SDLK_p) {
-                    auto eye = camera.eye();
-                    auto center = camera.center();
-                    auto up = camera.up();
-                    std::cout << "-eye " << eye.x << " " << eye.y << " " << eye.z
-                              << " -center " << center.x << " " << center.y << " " << center.z
-                              << " -up " << up.x << " " << up.y << " " << up.z << "\n";
-                } else if (event.key.keysym.sym == SDLK_s) {
-                    std::cout << "Image saved to " << image_output << "\n";
-                    stbi_write_png(image_output.c_str(),
-                                   win_width,
-                                   win_height,
-                                   4,
-                                   renderer->img.data(),
-                                   4 * win_width);
                 }
             }
             if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_CLOSE &&
@@ -251,7 +287,6 @@ void run_app(const std::vector<std::string> &args, SDL_Window *window, Display *
                 io.DisplaySize.y = win_height;
 
                 display->resize(win_width, win_height);
-                renderer->initialize(win_width, win_height);
             }
         }
 
@@ -268,6 +303,8 @@ void run_app(const std::vector<std::string> &args, SDL_Window *window, Display *
 
         if (save_image) {
             save_image = false;
+            // TODO
+            /*
             std::cout << "Image saved to " << image_output << "\n";
             stbi_write_png(image_output.c_str(),
                            win_width,
@@ -275,6 +312,7 @@ void run_app(const std::vector<std::string> &args, SDL_Window *window, Display *
                            4,
                            renderer->img.data(),
                            4 * win_width);
+                           */
         }
 
         if (frame_id == 1) {
