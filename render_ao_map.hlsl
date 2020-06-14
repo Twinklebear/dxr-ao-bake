@@ -22,6 +22,7 @@ FSInput vsmain(VSInput input)
 
 float4 fsmain(FSInput) : SV_TARGET0
 {
+    // TODO: need the TLAS and then trace some rays!
     return float4(1.f, 1.f, 1.f, 1.f);
 }
 
