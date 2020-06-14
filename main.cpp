@@ -27,6 +27,17 @@ const std::string USAGE = "Usage: <backend> <obj/gltf_file>\n";
 int win_width = 512;
 int win_height = 512;
 
+struct AtlasParams {
+    glm::ivec2 dimensions;
+    int n_samples;
+    float ao_length;
+
+    AtlasParams(const glm::uvec2 dims)
+        : dimensions(dims.x, dims.y), n_samples(64), ao_length(100.f)
+    {
+    }
+};
+
 void run_app(const std::vector<std::string> &args, SDL_Window *window, DXDisplay *display);
 
 glm::vec2 transform_mouse(glm::vec2 in)
@@ -92,12 +103,8 @@ void run_app(const std::vector<std::string> &args, SDL_Window *window, DXDisplay
     std::unique_ptr<RenderDXR> renderer = std::make_unique<RenderDXR>(display->device, true);
 
     std::string scene_file = args[1];
-    /*
-    for (size_t i = 1; i < args.size(); ++i) {
-        scene_file = args[i];
-        canonicalize_path(scene_file);
-    }
-    */
+    canonicalize_path(scene_file);
+    
     if (!renderer) {
         std::cout << "Error: No renderer backend or invalid backend name specified\n" << USAGE;
         std::exit(1);
@@ -256,20 +263,12 @@ void run_app(const std::vector<std::string> &args, SDL_Window *window, DXDisplay
 
     // Make an empty root signature
     // TODO: This will take the TLAS later
-    ComPtr<ID3D12RootSignature> root_signature;
-    {
-        D3D12_ROOT_SIGNATURE_DESC desc = {0};
-        desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
-
-        ComPtr<ID3DBlob> signature;
-        ComPtr<ID3DBlob> error;
-        CHECK_ERR(D3D12SerializeRootSignature(
-            &desc, D3D_ROOT_SIGNATURE_VERSION_1, &signature, &error));
-        CHECK_ERR(display->device->CreateRootSignature(0,
-                                                       signature->GetBufferPointer(),
-                                                       signature->GetBufferSize(),
-                                                       IID_PPV_ARGS(&root_signature)));
-    }
+    dxr::RootSignature root_signature =
+        dxr::RootSignatureBuilder::global(
+            D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT)
+            .add_constants("atlas_info", 0, 4, 0)
+            .add_srv("scene", 0, 0)
+            .create(display->device.Get());
 
     ComPtr<ID3D12PipelineState> pipeline_state;
     {
@@ -300,7 +299,7 @@ void run_app(const std::vector<std::string> &args, SDL_Window *window, DXDisplay
                                      D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,
                                      0}};
 
-        desc.pRootSignature = root_signature.Get();
+        desc.pRootSignature = root_signature.get();
 
         desc.VS.pShaderBytecode = render_ao_map_vs_dxil;
         desc.VS.BytecodeLength = sizeof(render_ao_map_vs_dxil);
@@ -395,6 +394,8 @@ void run_app(const std::vector<std::string> &args, SDL_Window *window, DXDisplay
     const std::string image_output = "dxr_ao_bake.png";
     const std::string display_frontend = display->name();
 
+    AtlasParams atlas_params(atlas_size);
+
     size_t frame_id = 0;
     float render_time = 0.f;
     float rays_per_second = 0.f;
@@ -455,7 +456,10 @@ void run_app(const std::vector<std::string> &args, SDL_Window *window, DXDisplay
 
         CHECK_ERR(cmd_list->Reset(cmd_allocator.Get(), pipeline_state.Get()));
 
-        cmd_list->SetGraphicsRootSignature(root_signature.Get());
+        cmd_list->SetGraphicsRootSignature(root_signature.get());
+        cmd_list->SetGraphicsRoot32BitConstants(0, 4, &atlas_params, 0);
+        cmd_list->SetGraphicsRootShaderResourceView(
+            1, renderer->scene_bvh->GetGPUVirtualAddress());
         cmd_list->RSSetViewports(1, &viewport);
         cmd_list->RSSetScissorRects(1, &screen_bounds);
         D3D12_CPU_DESCRIPTOR_HANDLE render_target =

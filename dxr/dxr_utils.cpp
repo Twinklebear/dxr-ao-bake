@@ -202,10 +202,10 @@ ID3D12RootSignature *RootSignature::get()
     return sig.Get();
 }
 
-RootSignatureBuilder RootSignatureBuilder::global()
+RootSignatureBuilder RootSignatureBuilder::global(D3D12_ROOT_SIGNATURE_FLAGS flags)
 {
     RootSignatureBuilder sig;
-    sig.flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+    sig.flags = flags;
     return sig;
 }
 RootSignatureBuilder RootSignatureBuilder::local()

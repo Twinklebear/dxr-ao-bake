@@ -2,14 +2,14 @@
 #include "lcg_rng.hlsl"
 
 struct VSInput {
-    float4 position: POSITION0;
+    float3 position: POSITION0;
     float3 normal: NORMAL0;
     float2 uv: TEXCOORD0;
 };
 
 struct FSInput {
     float4 uv_position: SV_POSITION;
-    float4 world_position: TEXCOORD0;
+    float3 world_position: TEXCOORD0;
     float3 normal: NORMAL0;
 };
 
@@ -57,14 +57,13 @@ float4 fsmain(FSInput input) : SV_TARGET0
 
         ray.Direction = normalize(x * v_x + y * v_y + z * v_z);
 
-        q.TraceRayInline(scene, 0, 0xff, ray);
-        q.Proceed();
+        query.TraceRayInline(scene, 0, 0xff, ray);
+        query.Proceed();
 
-        if (q.CommittedStatus() == COMMITTED_TRIANGLE_HIT) {
+        if (query.CommittedStatus() == COMMITTED_TRIANGLE_HIT) {
             n_occluded += 1.f;
         }
     }
-
     return 1.f - n_occluded / n_samples;
 }
 

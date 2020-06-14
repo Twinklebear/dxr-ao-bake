@@ -459,7 +459,8 @@ RenderStats RenderDXR::render(const glm::vec3 &pos,
 void RenderDXR::create_device_objects()
 {
     if (!dxr::dxr_available(device)) {
-        throw std::runtime_error("DXR is required but not available!");
+        std::cout << "DXR 1.1 is not available\n" << std::flush;
+        throw std::runtime_error("DXR 1.1 is required but not available!");
     }
 
     device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence));

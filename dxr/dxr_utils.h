@@ -123,9 +123,9 @@ class RootSignatureBuilder {
                         uint32_t space);
 
 public:
-    static RootSignatureBuilder global();
+    static RootSignatureBuilder global(
+        D3D12_ROOT_SIGNATURE_FLAGS flags = D3D12_ROOT_SIGNATURE_FLAG_NONE);
     static RootSignatureBuilder local();
-
     RootSignatureBuilder &add_constants(const std::string &name,
                                         uint32_t shader_register,
                                         uint32_t num_vals,
