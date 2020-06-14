@@ -7,7 +7,7 @@
 #include <numeric>
 #include <sstream>
 #include <string>
-#include "render_dxr_embedded_dxil.h"
+#include "dxr_shaders_embedded_dxil.h"
 #include "util.h"
 #include <glm/ext.hpp>
 
@@ -514,8 +514,8 @@ void RenderDXR::create_device_objects()
 
 void RenderDXR::build_raytracing_pipeline()
 {
-    dxr::ShaderLibrary shader_library(render_dxr_dxil,
-                                      sizeof(render_dxr_dxil),
+    dxr::ShaderLibrary shader_library(dxr_shaders_dxil,
+                                      sizeof(dxr_shaders_dxil),
                                       {L"RayGen", L"Miss", L"ClosestHit", L"ShadowMiss"});
 
     // Create the root signature for our ray gen shader

@@ -51,13 +51,10 @@ float lcg_randomf(inout LCGRand rng)
 	return ldexp((float)lcg_random(rng), -32);
 }
 
-LCGRand get_rng(int frame_id)
+LCGRand get_rng(int pixel_id, int frame_id)
 {
-	const uint2 pixel = DispatchRaysIndex().xy;
-    const uint2 dims = DispatchRaysDimensions().xy;
-
     LCGRand rng;
-    rng.state = murmur_hash3_mix(0, pixel.x + pixel.y * dims.x);
+    rng.state = murmur_hash3_mix(0, pixel_id);
     rng.state = murmur_hash3_mix(rng.state, frame_id);
     rng.state = murmur_hash3_finalize(rng.state);
 

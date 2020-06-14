@@ -20,11 +20,15 @@ add_subdirectory(dxr)
 
 add_dxil_embed_library(render_ao_map_vs
     render_ao_map.hlsl
-    COMPILE_OPTIONS -O3 -T vs_6_3 -E vsmain)
+    COMPILE_OPTIONS -O3 -T vs_6_5 -E vsmain
+    INCLUDE_DIRECTORIES
+        ${CMAKE_CURRENT_LIST_DIR}/dxr)
 
 add_dxil_embed_library(render_ao_map_fs
     render_ao_map.hlsl
-    COMPILE_OPTIONS -O3 -T ps_6_3 -E fsmain)
+    COMPILE_OPTIONS -O3 -T ps_6_5 -E fsmain
+    INCLUDE_DIRECTORIES
+        ${CMAKE_CURRENT_LIST_DIR}/dxr)
 
 add_executable(dxr_ao_bake main.cpp)
 

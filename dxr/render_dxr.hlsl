@@ -170,7 +170,7 @@ float3 sample_direct_light(in const DisneyMaterial mat, in const float3 hit_p, i
 void RayGen() {
     const uint2 pixel = DispatchRaysIndex().xy;
     const float2 dims = float2(DispatchRaysDimensions().xy);
-    LCGRand rng = get_rng(frame_id);
+    LCGRand rng = get_rng(pixel.x + pixel.y * dims.x, frame_id);
     const float2 d = (pixel + float2(lcg_randomf(rng), lcg_randomf(rng))) / dims;
 
     RayDesc ray;
