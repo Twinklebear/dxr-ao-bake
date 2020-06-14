@@ -682,8 +682,8 @@ void run_app(const std::vector<std::string> &args, SDL_Window *window, DXDisplay
         ImGui::Text("RT Backend: %s", rt_backend.c_str());
         ImGui::Text("CPU: %s", cpu_brand.c_str());
         ImGui::Text("GPU: %s", gpu_brand.c_str());
-        ImGui::Text("Accumulated Frames: %llu", frame_id);
-        ImGui::Text("Display Frontend: %s", display_frontend.c_str());
+        ImGui::SliderInt("AO Samples", &atlas_params.n_samples, 1, 2048);
+        ImGui::SliderFloat("AO Length", &atlas_params.ao_length, 0.5, 50.f);
         ImGui::Text("%s", scene_info.c_str());
 
         ImGui::End();
