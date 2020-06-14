@@ -7,8 +7,9 @@
 #include <vector>
 #include <SDL.h>
 #include "arcball_camera.h"
+#include "dxr/dx12_utils.h"
 #include "dxr/dxdisplay.h"
-#include "dxr/render_dxr.h"
+#include "dxr/dxr_utils.h"
 #include "imgui.h"
 #include "scene.h"
 #include "stb_image_write.h"
@@ -38,7 +39,14 @@ struct AtlasParams {
     }
 };
 
+using Microsoft::WRL::ComPtr;
+
 void run_app(const std::vector<std::string> &args, SDL_Window *window, DXDisplay *display);
+
+void sync_gpu(ComPtr<ID3D12CommandQueue> &cmd_queue,
+              ComPtr<ID3D12Fence> &fence,
+              uint64_t &fence_value,
+              HANDLE &fence_evt);
 
 glm::vec2 transform_mouse(glm::vec2 in)
 {
@@ -100,22 +108,43 @@ void run_app(const std::vector<std::string> &args, SDL_Window *window, DXDisplay
 {
     ImGuiIO &io = ImGui::GetIO();
 
-    std::unique_ptr<RenderDXR> renderer = std::make_unique<RenderDXR>(display->device, true);
-
     std::string scene_file = args[1];
     canonicalize_path(scene_file);
-    
-    if (!renderer) {
-        std::cout << "Error: No renderer backend or invalid backend name specified\n" << USAGE;
-        std::exit(1);
-    }
+
     if (scene_file.empty()) {
         std::cout << "Error: No model file specified\n" << USAGE;
         std::exit(1);
     }
 
     display->resize(win_width, win_height);
-    renderer->initialize(win_width, win_height);
+    auto &device = display->device;
+
+    ComPtr<ID3D12Fence> fence;
+    uint64_t fence_value = 1;
+    device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence));
+    HANDLE fence_evt = CreateEvent(nullptr, false, false, nullptr);
+
+    // Create the command queue and command allocator
+    ComPtr<ID3D12CommandQueue> cmd_queue;
+    ComPtr<ID3D12CommandAllocator> cmd_allocator;
+    D3D12_COMMAND_QUEUE_DESC queue_desc = {};
+    queue_desc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
+    queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+    CHECK_ERR(device->CreateCommandQueue(&queue_desc, IID_PPV_ARGS(&cmd_queue)));
+    CHECK_ERR(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                             IID_PPV_ARGS(&cmd_allocator)));
+
+    // Make the command lists
+    ComPtr<ID3D12GraphicsCommandList4> cmd_list;
+    CHECK_ERR(device->CreateCommandList(0,
+                                        D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                        cmd_allocator.Get(),
+                                        nullptr,
+                                        IID_PPV_ARGS(&cmd_list)));
+    cmd_list->Close();
+
+    std::vector<dxr::BottomLevelBVH> meshes;
+    dxr::TopLevelBVH scene_bvh;
 
     glm::uvec2 atlas_size;
     std::string scene_info;
@@ -223,7 +252,175 @@ void run_app(const std::vector<std::string> &args, SDL_Window *window, DXDisplay
         }
         xatlas::Destroy(atlas);
 
-        renderer->set_scene(scene);
+        // Upload the scene geometry
+        for (const auto &mesh : scene.meshes) {
+            std::vector<dxr::Geometry> geometries;
+            for (const auto &geom : mesh.geometries) {
+                // Upload the mesh to the vertex buffer, build accel structures
+                // Place the data in an upload heap first, then do a GPU-side copy
+                // into a default heap (resident in VRAM)
+                dxr::Buffer upload_verts =
+                    dxr::Buffer::upload(device.Get(),
+                                        geom.vertices.size() * sizeof(glm::vec3),
+                                        D3D12_RESOURCE_STATE_GENERIC_READ);
+                dxr::Buffer upload_indices =
+                    dxr::Buffer::upload(device.Get(),
+                                        geom.indices.size() * sizeof(glm::uvec3),
+                                        D3D12_RESOURCE_STATE_GENERIC_READ);
+
+                // Copy vertex and index data into the upload buffers
+                std::memcpy(upload_verts.map(), geom.vertices.data(), upload_verts.size());
+                std::memcpy(upload_indices.map(), geom.indices.data(), upload_indices.size());
+                upload_verts.unmap();
+                upload_indices.unmap();
+
+                dxr::Buffer upload_uvs;
+                if (!geom.uvs.empty()) {
+                    upload_uvs = dxr::Buffer::upload(device.Get(),
+                                                     geom.uvs.size() * sizeof(glm::vec2),
+                                                     D3D12_RESOURCE_STATE_GENERIC_READ);
+                    std::memcpy(upload_uvs.map(), geom.uvs.data(), upload_uvs.size());
+                    upload_uvs.unmap();
+                }
+
+                dxr::Buffer upload_normals;
+                if (!geom.normals.empty()) {
+                    upload_normals =
+                        dxr::Buffer::upload(device.Get(),
+                                            geom.normals.size() * sizeof(glm::vec3),
+                                            D3D12_RESOURCE_STATE_GENERIC_READ);
+                    std::memcpy(
+                        upload_normals.map(), geom.normals.data(), upload_normals.size());
+                    upload_normals.unmap();
+                }
+
+                // Allocate GPU side buffers for the data so we can have it resident in VRAM
+                dxr::Buffer vertex_buf = dxr::Buffer::default(
+                    device.Get(), upload_verts.size(), D3D12_RESOURCE_STATE_COPY_DEST);
+                dxr::Buffer index_buf = dxr::Buffer::default(
+                    device.Get(), upload_indices.size(), D3D12_RESOURCE_STATE_COPY_DEST);
+
+                CHECK_ERR(cmd_list->Reset(cmd_allocator.Get(), nullptr));
+
+                // Enqueue the copy into GPU memory
+                cmd_list->CopyResource(vertex_buf.get(), upload_verts.get());
+                cmd_list->CopyResource(index_buf.get(), upload_indices.get());
+
+                dxr::Buffer uv_buf;
+                if (!geom.uvs.empty()) {
+                    uv_buf = dxr::Buffer::default(
+                        device.Get(), upload_uvs.size(), D3D12_RESOURCE_STATE_COPY_DEST);
+                    cmd_list->CopyResource(uv_buf.get(), upload_uvs.get());
+                }
+
+                dxr::Buffer normal_buf;
+                if (!geom.normals.empty()) {
+                    normal_buf = dxr::Buffer::default(
+                        device.Get(), upload_normals.size(), D3D12_RESOURCE_STATE_COPY_DEST);
+                    cmd_list->CopyResource(normal_buf.get(), upload_normals.get());
+                }
+
+                // Barriers to wait for the copies to finish before building the accel. structs
+                {
+                    std::vector<D3D12_RESOURCE_BARRIER> b;
+                    b.push_back(barrier_transition(
+                        vertex_buf, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE));
+                    b.push_back(barrier_transition(
+                        index_buf, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE));
+                    if (!geom.uvs.empty()) {
+                        b.push_back(barrier_transition(
+                            uv_buf, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE));
+                    };
+                    if (!geom.normals.empty()) {
+                        b.push_back(barrier_transition(
+                            normal_buf, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE));
+                    };
+                    cmd_list->ResourceBarrier(b.size(), b.data());
+                }
+
+                geometries.emplace_back(vertex_buf, index_buf, normal_buf, uv_buf);
+
+                // TODO: Some possible perf improvements: We can run all the upload of
+                // index data in parallel, and the BVH building in parallel for all the
+                // geometries. This should help for some large scenes, though with the
+                // assumption that the entire build space for all the bottom level stuff can
+                // fit on the GPU. For large scenes it would be best to monitor the available
+                // space needed for the queued builds vs. the available GPU memory and then run
+                // stuff and compact when we start getting full.
+                CHECK_ERR(cmd_list->Close());
+                ID3D12CommandList *cmd_lists = cmd_list.Get();
+                cmd_queue->ExecuteCommandLists(1, &cmd_lists);
+                sync_gpu(cmd_queue, fence, fence_value, fence_evt);
+            }
+
+            meshes.emplace_back(geometries);
+
+            CHECK_ERR(cmd_list->Reset(cmd_allocator.Get(), nullptr));
+            meshes.back().enqeue_build(device.Get(), cmd_list.Get());
+            CHECK_ERR(cmd_list->Close());
+            ID3D12CommandList *cmd_lists = cmd_list.Get();
+            cmd_queue->ExecuteCommandLists(1, &cmd_lists);
+            sync_gpu(cmd_queue, fence, fence_value, fence_evt);
+
+            CHECK_ERR(cmd_list->Reset(cmd_allocator.Get(), nullptr));
+
+            meshes.back().enqueue_compaction(device.Get(), cmd_list.Get());
+            CHECK_ERR(cmd_list->Close());
+            cmd_queue->ExecuteCommandLists(1, &cmd_lists);
+            sync_gpu(cmd_queue, fence, fence_value, fence_evt);
+
+            meshes.back().finalize();
+        }
+
+        auto instance_buf = dxr::Buffer::upload(
+            device.Get(),
+            align_to(scene.instances.size() * sizeof(D3D12_RAYTRACING_INSTANCE_DESC),
+                     D3D12_RAYTRACING_INSTANCE_DESCS_BYTE_ALIGNMENT),
+            D3D12_RESOURCE_STATE_GENERIC_READ);
+
+        {
+            // TODO: We want to keep some of the instance to BLAS mapping info for setting up
+            // the hitgroups/sbt so the toplevel bvh can become something a bit higher-level to
+            // manage this and filling out the instance buffers Write the data about our
+            // instance
+            D3D12_RAYTRACING_INSTANCE_DESC *buf =
+                static_cast<D3D12_RAYTRACING_INSTANCE_DESC *>(instance_buf.map());
+
+            size_t instance_hitgroup_offset = 0;
+            for (size_t i = 0; i < scene.instances.size(); ++i) {
+                const auto &inst = scene.instances[i];
+                buf[i].InstanceID = i;
+                buf[i].InstanceContributionToHitGroupIndex = instance_hitgroup_offset;
+                buf[i].Flags = D3D12_RAYTRACING_INSTANCE_FLAG_FORCE_OPAQUE;
+                buf[i].AccelerationStructure = meshes[inst.mesh_id]->GetGPUVirtualAddress();
+                buf[i].InstanceMask = 0xff;
+
+                // Note: D3D matrices are row-major
+                std::memset(buf[i].Transform, 0, sizeof(buf[i].Transform));
+                const glm::mat4 m = glm::transpose(inst.transform);
+                for (int r = 0; r < 3; ++r) {
+                    for (int c = 0; c < 4; ++c) {
+                        buf[i].Transform[r][c] = m[r][c];
+                    }
+                }
+
+                instance_hitgroup_offset += meshes[inst.mesh_id].geometries.size();
+            }
+            instance_buf.unmap();
+        }
+
+        // Now build the top level acceleration structure on our instance
+        scene_bvh = dxr::TopLevelBVH(instance_buf, scene.instances);
+
+        CHECK_ERR(cmd_list->Reset(cmd_allocator.Get(), nullptr));
+        scene_bvh.enqeue_build(device.Get(), cmd_list.Get());
+        CHECK_ERR(cmd_list->Close());
+
+        ID3D12CommandList *cmd_lists = cmd_list.Get();
+        cmd_queue->ExecuteCommandLists(1, &cmd_lists);
+        sync_gpu(cmd_queue, fence, fence_value, fence_evt);
+
+        scene_bvh.finalize();
     }
 
     // TODO LATER: 2D panning controls for the atlas so we don't need the window dims to match
@@ -233,8 +430,6 @@ void run_app(const std::vector<std::string> &args, SDL_Window *window, DXDisplay
     SDL_SetWindowSize(window, win_width, win_height);
 
     display->resize(win_width, win_height);
-    // TODO: No longer need this init part for the ray tracer, but more there later
-    renderer->initialize(win_width, win_height);
 
     D3D12_CLEAR_VALUE clear_value;
     clear_value.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -247,19 +442,18 @@ void run_app(const std::vector<std::string> &args, SDL_Window *window, DXDisplay
                                             DXGI_FORMAT_R8G8B8A8_UNORM,
                                             D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET,
                                             &clear_value);
-    using Microsoft::WRL::ComPtr;
 
     // Make a descriptor heap
     ComPtr<ID3D12DescriptorHeap> rtv_heap;
-    D3D12_DESCRIPTOR_HEAP_DESC rtv_heap_desc = {0};
+    D3D12_DESCRIPTOR_HEAP_DESC rtv_heap_desc = {};
     rtv_heap_desc.NumDescriptors = 1;
     rtv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
     rtv_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-    CHECK_ERR(display->device->CreateDescriptorHeap(&rtv_heap_desc, IID_PPV_ARGS(&rtv_heap)));
+    CHECK_ERR(device->CreateDescriptorHeap(&rtv_heap_desc, IID_PPV_ARGS(&rtv_heap)));
 
     // Create render target descriptors heap for our AO baked
     D3D12_CPU_DESCRIPTOR_HANDLE rtv_handle = rtv_heap->GetCPUDescriptorHandleForHeapStart();
-    display->device->CreateRenderTargetView(ao_image.get(), nullptr, rtv_handle);
+    device->CreateRenderTargetView(ao_image.get(), nullptr, rtv_handle);
 
     // Make an empty root signature
     // TODO: This will take the TLAS later
@@ -350,33 +544,8 @@ void run_app(const std::vector<std::string> &args, SDL_Window *window, DXDisplay
         desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
         desc.SampleDesc.Count = 1;
 
-        CHECK_ERR(display->device->CreateGraphicsPipelineState(&desc,
-                                                               IID_PPV_ARGS(&pipeline_state)));
+        CHECK_ERR(device->CreateGraphicsPipelineState(&desc, IID_PPV_ARGS(&pipeline_state)));
     }
-
-    ComPtr<ID3D12Fence> fence;
-    uint64_t fence_value = 1;
-    display->device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence));
-    HANDLE fence_evt = CreateEvent(nullptr, false, false, nullptr);
-
-    // Create the command queue and command allocator
-    ComPtr<ID3D12CommandQueue> cmd_queue;
-    ComPtr<ID3D12CommandAllocator> cmd_allocator;
-    D3D12_COMMAND_QUEUE_DESC queue_desc = {};
-    queue_desc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
-    queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
-    CHECK_ERR(display->device->CreateCommandQueue(&queue_desc, IID_PPV_ARGS(&cmd_queue)));
-    CHECK_ERR(display->device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
-                                                      IID_PPV_ARGS(&cmd_allocator)));
-
-    // Make the command lists
-    ComPtr<ID3D12GraphicsCommandList4> cmd_list;
-    CHECK_ERR(display->device->CreateCommandList(0,
-                                                 D3D12_COMMAND_LIST_TYPE_DIRECT,
-                                                 cmd_allocator.Get(),
-                                                 nullptr,
-                                                 IID_PPV_ARGS(&cmd_list)));
-    cmd_list->Close();
 
     D3D12_RECT screen_bounds = {0};
     screen_bounds.right = win_width;
@@ -388,7 +557,7 @@ void run_app(const std::vector<std::string> &args, SDL_Window *window, DXDisplay
     viewport.MinDepth = D3D12_MIN_DEPTH;
     viewport.MaxDepth = D3D12_MAX_DEPTH;
 
-    const std::string rt_backend = renderer->name();
+    const std::string rt_backend = "DirectX Ray Tracing";
     const std::string cpu_brand = get_cpu_brand();
     const std::string gpu_brand = display->gpu_brand();
     const std::string image_output = "dxr_ao_bake.png";
@@ -447,19 +616,13 @@ void run_app(const std::vector<std::string> &args, SDL_Window *window, DXDisplay
         }
 
         const bool need_readback = save_image;
-        /*
-        RenderStats stats = renderer->render(
-            camera.eye(), camera.dir(), camera.up(), 45.f, true, need_readback);
-            */
-        // Build the command list to clear the frame color
-        CHECK_ERR(cmd_allocator->Reset());
 
+        CHECK_ERR(cmd_allocator->Reset());
         CHECK_ERR(cmd_list->Reset(cmd_allocator.Get(), pipeline_state.Get()));
 
         cmd_list->SetGraphicsRootSignature(root_signature.get());
         cmd_list->SetGraphicsRoot32BitConstants(0, 4, &atlas_params, 0);
-        cmd_list->SetGraphicsRootShaderResourceView(
-            1, renderer->scene_bvh->GetGPUVirtualAddress());
+        cmd_list->SetGraphicsRootShaderResourceView(1, scene_bvh->GetGPUVirtualAddress());
         cmd_list->RSSetViewports(1, &viewport);
         cmd_list->RSSetScissorRects(1, &screen_bounds);
         D3D12_CPU_DESCRIPTOR_HANDLE render_target =
@@ -470,7 +633,7 @@ void run_app(const std::vector<std::string> &args, SDL_Window *window, DXDisplay
         cmd_list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
         // Note: The AO baking doesn't support actually having multiple instances of the same
         // mesh
-        for (auto &m : renderer->meshes) {
+        for (auto &m : meshes) {
             for (auto &g : m.geometries) {
                 std::array<D3D12_VERTEX_BUFFER_VIEW, 3> vbo_views = {
                     D3D12_VERTEX_BUFFER_VIEW{
@@ -506,13 +669,7 @@ void run_app(const std::vector<std::string> &args, SDL_Window *window, DXDisplay
         std::array<ID3D12CommandList *, 1> cmd_lists = {cmd_list.Get()};
         cmd_queue->ExecuteCommandLists(cmd_lists.size(), cmd_lists.data());
 
-        const uint64_t signal_val = fence_value++;
-        CHECK_ERR(cmd_queue->Signal(fence.Get(), signal_val));
-
-        if (fence->GetCompletedValue() < signal_val) {
-            CHECK_ERR(fence->SetEventOnCompletion(signal_val, fence_evt));
-            WaitForSingleObject(fence_evt, INFINITE);
-        }
+        sync_gpu(cmd_queue, fence, fence_value, fence_evt);
 
         ++frame_id;
 
@@ -575,5 +732,19 @@ void run_app(const std::vector<std::string> &args, SDL_Window *window, DXDisplay
         ImGui::Render();
 
         display->display_native(ao_image);
+    }
+}
+
+void sync_gpu(ComPtr<ID3D12CommandQueue> &cmd_queue,
+              ComPtr<ID3D12Fence> &fence,
+              uint64_t &fence_value,
+              HANDLE &fence_evt)
+{
+    const uint64_t signal_val = fence_value++;
+    CHECK_ERR(cmd_queue->Signal(fence.Get(), signal_val));
+
+    if (fence->GetCompletedValue() < signal_val) {
+        CHECK_ERR(fence->SetEventOnCompletion(signal_val, fence_evt));
+        WaitForSingleObject(fence_evt, INFINITE);
     }
 }
