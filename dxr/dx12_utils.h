@@ -42,7 +42,8 @@ protected:
     D3D12_HEAP_TYPE rheap;
     D3D12_RESOURCE_STATES rstate;
 
-    friend D3D12_RESOURCE_BARRIER barrier_transition(Resource &res, D3D12_RESOURCE_STATES after);
+    friend D3D12_RESOURCE_BARRIER barrier_transition(Resource &res,
+                                                     D3D12_RESOURCE_STATES after);
 
 public:
     virtual ~Resource();
@@ -108,7 +109,8 @@ public:
                              glm::uvec2 dims,
                              D3D12_RESOURCE_STATES state,
                              DXGI_FORMAT img_format,
-                             D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE);
+                             D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE,
+                             D3D12_CLEAR_VALUE *clear_value = nullptr);
 
     // Read the texture data back into the provided buffer
     // buffer size must be aligned to a row pitch of D3D12_TEXTURE_DATA_PITCH_ALIGNMENT

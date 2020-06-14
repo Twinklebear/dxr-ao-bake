@@ -79,14 +79,14 @@ function(add_dxil_embed_library)
 
 	# We only compile the main shader with dxc, but use the rest to
 	# set the target dependencies properly
+    set(DXIL_EMBED_FILE "${CMAKE_CURRENT_BINARY_DIR}/${DXIL_LIB}_embedded_dxil.h")
 	get_filename_component(FNAME ${MAIN_SHADER} NAME_WE)
-	set(DXIL_EMBED_FILE "${CMAKE_CURRENT_BINARY_DIR}/${FNAME}_embedded_dxil.h")
 	add_custom_command(OUTPUT ${DXIL_EMBED_FILE}
 		COMMAND ${D3D12_SHADER_COMPILER} ${CMAKE_CURRENT_LIST_DIR}/${MAIN_SHADER}
-		-T lib_6_3 -Fh ${DXIL_EMBED_FILE} -Vn ${FNAME}_dxil
+        -Fh ${DXIL_EMBED_FILE} -Vn ${DXIL_LIB}_dxil
 		${HLSL_INCLUDE_DIRS} ${HLSL_COMPILE_DEFNS} ${DXIL_COMPILE_OPTIONS}
 		DEPENDS ${HLSL_SRCS}
-		COMMENT "Compiling and embedding ${MAIN_SHADER} as ${FNAME}_dxil")
+        COMMENT "Compiling and embedding ${MAIN_SHADER} into ${DXIL_EMBED_FILE}")
 
 	# This is needed for some reason to get CMake to generate the file properly
 	# and not screw up the build, because the original approach of just

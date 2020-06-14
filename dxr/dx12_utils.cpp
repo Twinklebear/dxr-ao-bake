@@ -198,7 +198,8 @@ Texture2D Texture2D::default(ID3D12Device *device,
                              glm::uvec2 dims,
                              D3D12_RESOURCE_STATES state,
                              DXGI_FORMAT img_format,
-                             D3D12_RESOURCE_FLAGS flags)
+                             D3D12_RESOURCE_FLAGS flags,
+                             D3D12_CLEAR_VALUE *clear_value)
 {
     D3D12_RESOURCE_DESC desc = {0};
     desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
@@ -217,11 +218,12 @@ Texture2D Texture2D::default(ID3D12Device *device,
     t.rstate = state;
     t.rheap = D3D12_HEAP_TYPE_DEFAULT;
     t.format = img_format;
+
     CHECK_ERR(device->CreateCommittedResource(&DEFAULT_HEAP_PROPS,
                                               D3D12_HEAP_FLAG_NONE,
                                               &desc,
                                               state,
-                                              nullptr,
+                                              clear_value,
                                               IID_PPV_ARGS(&t.res)));
     return t;
 }

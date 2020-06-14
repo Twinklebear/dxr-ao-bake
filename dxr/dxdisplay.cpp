@@ -263,7 +263,7 @@ void DXDisplay::display_native(dxr::Texture2D &img)
             dxr::barrier_transition(back_buffer.Get(),
                                     D3D12_RESOURCE_STATE_COPY_DEST,
                                     D3D12_RESOURCE_STATE_RENDER_TARGET),
-            dxr::barrier_transition(img, D3D12_RESOURCE_STATE_UNORDERED_ACCESS)};
+            dxr::barrier_transition(img, D3D12_RESOURCE_STATE_RENDER_TARGET)};
 
         cmd_list->ResourceBarrier(b.size(), b.data());
     }
