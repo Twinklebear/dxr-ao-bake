@@ -570,7 +570,6 @@ void run_app(const std::vector<std::string> &args, SDL_Window *window, DXDisplay
     float rays_per_second = 0.f;
     glm::vec2 prev_mouse(-2.f);
     bool done = false;
-    bool save_image = false;
     while (!done) {
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
@@ -614,8 +613,6 @@ void run_app(const std::vector<std::string> &args, SDL_Window *window, DXDisplay
                 display->resize(win_width, win_height);
             }
         }
-
-        const bool need_readback = save_image;
 
         CHECK_ERR(cmd_allocator->Reset());
         CHECK_ERR(cmd_list->Reset(cmd_allocator.Get(), pipeline_state.Get()));
@@ -673,47 +670,12 @@ void run_app(const std::vector<std::string> &args, SDL_Window *window, DXDisplay
 
         ++frame_id;
 
-        if (save_image) {
-            save_image = false;
-            // TODO
-            /*
-            std::cout << "Image saved to " << image_output << "\n";
-            stbi_write_png(image_output.c_str(),
-                           win_width,
-                           win_height,
-                           4,
-                           renderer->img.data(),
-                           4 * win_width);
-                           */
-        }
-
-        /*
-        if (frame_id == 1) {
-            render_time = stats.render_time;
-            rays_per_second = stats.rays_per_second;
-        } else {
-            render_time += stats.render_time;
-            rays_per_second += stats.rays_per_second;
-        }
-        */
-
         display->new_frame();
 
         ImGui_ImplSDL2_NewFrame(window);
         ImGui::NewFrame();
 
         ImGui::Begin("Render Info");
-        ImGui::Text("Render Time: %.3f ms/frame (%.1f FPS)",
-                    render_time / frame_id,
-                    1000.f / (render_time / frame_id));
-
-        /*
-        if (stats.rays_per_second > 0) {
-            const std::string rays_per_sec = pretty_print_count(rays_per_second / frame_id);
-            ImGui::Text("Rays per-second: %sRay/s", rays_per_sec.c_str());
-        }
-        */
-
         ImGui::Text("Total Application Time: %.3f ms/frame (%.1f FPS)",
                     1000.0f / ImGui::GetIO().Framerate,
                     ImGui::GetIO().Framerate);
@@ -723,10 +685,6 @@ void run_app(const std::vector<std::string> &args, SDL_Window *window, DXDisplay
         ImGui::Text("Accumulated Frames: %llu", frame_id);
         ImGui::Text("Display Frontend: %s", display_frontend.c_str());
         ImGui::Text("%s", scene_info.c_str());
-
-        if (ImGui::Button("Save Image")) {
-            save_image = true;
-        }
 
         ImGui::End();
         ImGui::Render();
