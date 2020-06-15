@@ -1,7 +1,10 @@
 # DXR Ambient Occlusion Baking
 
-A demo of ambient occlusion map baking using DXR.
+A demo of ambient occlusion map baking using DXR inline ray tracing.
 Uses [xatlas](https://github.com/jpcy/xatlas) to unwrap the mesh.
+The mesh is rasterized into the atlas image by using the UV
+coordinates as the output vertex positions, and the AO factor
+computed by using inline ray tracing in the fragment shader.
 
 ## Dependencies
 
