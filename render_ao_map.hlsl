@@ -40,7 +40,9 @@ float4 fsmain(FSInput input) : SV_TARGET0
     int pixel_id = (input.uv_position.x + input.uv_position.y * dimensions.y) * dimensions.x;
     LCGRand rng = get_rng(pixel_id, 0);
 
-    RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH> query;
+    RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH
+             | RAY_FLAG_CULL_NON_OPAQUE 
+             | RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES> query;
     RayDesc ray;
     ray.Origin = input.world_position;
     ray.TMin = 0.001f;
