@@ -4,11 +4,10 @@ on: [push, pull_request]
 
 env:
     BUILD_TYPE: Release
+    PACKAGE_NAME: dxr-ao-bake-x86_64
 
 jobs:
     build:
-      env:
-        PACKAGE_NAME: dxr-ao-bake-x86_64
       runs-on: windows-2019
 
       steps:
@@ -43,7 +42,7 @@ jobs:
 
       - name: Package
         working-directory: ${{github.workspace}}/build/${{env.BUILD_TYPE}}
-        run: 7z a -tzip ${env:PACKAGE_NAME}.zip
+        run: 7z a -tzip dxr-ao-bake-x86_64.zip
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v2
