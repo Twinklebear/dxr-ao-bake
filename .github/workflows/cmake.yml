@@ -48,4 +48,4 @@ jobs:
         uses: actions/upload-artifact@v2
         with:
             name: ${{env.PACKAGE_NAME}}
-            path: ${{github.workspace}}/build/${{env.PACKAGE_NAME}}.zip
+            path: ${{github.workspace}}/build/${{env.BUILD_TYPE}}/${{env.PACKAGE_NAME}}.zip
