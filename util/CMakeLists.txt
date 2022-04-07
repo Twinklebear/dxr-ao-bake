@@ -18,11 +18,10 @@ set_target_properties(util PROPERTIES
 
 target_include_directories(util PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}>
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}/parallel_hashmap>
-    $<BUILD_INTERFACE:${SDL2_INCLUDE_DIR}>
-    $<BUILD_INTERFACE:${GLM_INCLUDE_DIRS}>)
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}/parallel_hashmap>)
 
 target_link_libraries(util PUBLIC
     imgui
-    ${SDL2_LIBRARY})
+    glm
+    SDL2::SDL2)
 

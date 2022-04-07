@@ -1,0 +1,52 @@
+name: CMake
+
+on: [push, pull_request]
+
+env:
+    BUILD_TYPE: Release
+
+jobs:
+    build:
+      env:
+        PACKAGE_NAME: dxr-ao-bake-x86_64
+      runs-on: windows-2019
+
+      steps:
+      - uses: actions/checkout@v2
+
+      - name: Create Build Environment
+        run: |
+          cmake -E make_directory ${{github.workspace}}/build
+          choco install wget
+          echo ${env:GITHUB_WORKSPACE}
+          dir
+
+      # Note: SDL2 Vulkan support is needed when installing through vcpkg
+      - name: Setup SDL2
+        run: vcpkg install sdl2[vulkan]:x64-windows
+
+      - name: Configure CMake
+        working-directory: ${{github.workspace}}/build
+        run: >
+          cmake -A x64 ${env:GITHUB_WORKSPACE}
+          -G "Visual Studio 16 2019"
+          -DCMAKE_INSTALL_PREFIX:PATH=${env:GITHUB_WORKSPACE}/install
+          -DCMAKE_TOOLCHAIN_FILE="${env:VCPKG_INSTALLATION_ROOT}/scripts/buildsystems/vcpkg.cmake"
+          -DCMAKE_SYSTEM_VERSION="10.0.19042"
+
+      - name: Build
+        working-directory: ${{github.workspace}}/build
+        run: |
+          dir
+          ls
+          cmake --build . --config ${env:BUILD_TYPE}
+
+      - name: Package
+        working-directory: ${{github.workspace}}/build/${{env.BUILD_TYPE}}
+        run: 7z a -tzip ${env:PACKAGE_NAME}.zip
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v2
+        with:
+            name: ${{env.PACKAGE_NAME}}
+            path: ${{github.workspace}}/build/${{env.PACKAGE_NAME}}.zip

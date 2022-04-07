@@ -8,6 +8,7 @@
 #include "material.h"
 #include "mesh.h"
 #include "phmap.h"
+#include <glm/glm.hpp>
 
 struct Scene {
     std::vector<Mesh> meshes;

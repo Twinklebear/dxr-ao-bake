@@ -23,7 +23,7 @@
 #include "render_ao_map_fs_embedded_dxil.h"
 #include "render_ao_map_vs_embedded_dxil.h"
 
-const std::string USAGE = "Usage: <backend> <obj/gltf_file>\n";
+const std::string USAGE = "Usage: <obj/gltf_file>\n";
 
 int win_width = 512;
 int win_height = 512;
@@ -34,7 +34,7 @@ struct AtlasParams {
     float ao_length;
 
     AtlasParams(const glm::uvec2 dims)
-        : dimensions(dims.x, dims.y), n_samples(64), ao_length(10.f)
+        : dimensions(dims.x, dims.y), n_samples(16), ao_length(5.f)
     {
     }
 };
@@ -166,6 +166,8 @@ void run_app(const std::vector<std::string> &args, SDL_Window *window, DXDisplay
         scene_info = ss.str();
         std::cout << scene_info << "\n";
 
+        SDL_SetWindowTitle(window, "Generating atlas, please wait..");
+
         auto *atlas = xatlas::Create();
         const size_t total_geometries = scene.num_geometries();
         for (const auto &m : scene.meshes) {
@@ -209,6 +211,7 @@ void run_app(const std::vector<std::string> &args, SDL_Window *window, DXDisplay
                   << "  # of atlases: " << atlas->atlasCount << "\n"
                   << "  Resolution: " << atlas->width << "x" << atlas->height << "\n";
 
+        SDL_SetWindowTitle(window, "DXR AO Baking");
         atlas_size = glm::uvec2(atlas->width, atlas->height);
 
         // Replace the mesh data with the atlas mesh data
@@ -682,8 +685,8 @@ void run_app(const std::vector<std::string> &args, SDL_Window *window, DXDisplay
         ImGui::Text("RT Backend: %s", rt_backend.c_str());
         ImGui::Text("CPU: %s", cpu_brand.c_str());
         ImGui::Text("GPU: %s", gpu_brand.c_str());
-        ImGui::SliderInt("AO Samples", &atlas_params.n_samples, 1, 2048);
-        ImGui::SliderFloat("AO Length", &atlas_params.ao_length, 0.5, 100.f);
+        ImGui::SliderInt("AO Samples", &atlas_params.n_samples, 1, 1024);
+        ImGui::SliderFloat("AO Length", &atlas_params.ao_length, 0.1, 10.f);
         ImGui::Text("%s", scene_info.c_str());
 
         ImGui::End();

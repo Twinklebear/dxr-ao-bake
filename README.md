@@ -6,12 +6,25 @@ The mesh is rasterized into the atlas image by using the UV
 coordinates as the output vertex positions, and the AO factor
 computed by using inline ray tracing in the fragment shader.
 
-## Dependencies
+## External Dependencies
 
 Requires DXR 1.1 support for in line ray tracing.
 
 - [SDL2](https://www.libsdl.org/download-2.0.php)
-- [glm](https://github.com/g-truc/glm)
+
+The easiest path to get SDL2 is through [vcpkg](). After installing SDL2
+you should be able to build the app via:
+
+```
+mkdir build
+cd build
+cmake .. -DCMAKE_TOOLCHAIN_FILE="<vcpkg install root>/scripts/buildsystems/vcpkg.cmake"
+cmake --build . --config relwithdebinfo
+```
+
+If CMake doesn't find your SDL2 install you can point it to the root
+of your SDL2 directory by passing `-DSDL2_DIR=<path>`. The app also uses
+GLM, which will be automatically downloaded by CMake during the build process.
 
 
 ## Examples
